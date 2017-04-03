@@ -92,8 +92,8 @@ def find_cal_ref(obsnum, nc_obs, max_scans=10, def_ref_A=5.0, def_ref_B=5.0):
 			if src != src_obs:
 				print 'WARNING: Cal source is different from Observation source'
 
-			ref_A = fit_ref_voltage(nc.variables['Data.Vlbi1mmTpm.APower'].data.copy())
-			ref_B = fit_ref_voltage(nc.variables['Data.Vlbi1mmTpm.BPower'].data.copy())
+			ref_A,cold_A = fit_ref_voltage(nc.variables['Data.Vlbi1mmTpm.APower'].data.copy())
+			ref_B,cold_B = fit_ref_voltage(nc.variables['Data.Vlbi1mmTpm.BPower'].data.copy())
 			
 		else:
 
@@ -107,7 +107,7 @@ def find_cal_ref(obsnum, nc_obs, max_scans=10, def_ref_A=5.0, def_ref_B=5.0):
 		print 'ERROR: Cal scan not found within %i scans of Obs scan %i' %(max_scans,obsnum)
 		print 'Reverting to default %i, %i ref voltages for A,B' %(def_ref_A, def_ref_B)
 	
-	return ref_A, ref_B, calnum
+	return ref_A, cold_A, ref_B, cold_B, calnum
 
 
 def fit_ref_voltage(cal_data, nbins=1000):
@@ -115,17 +115,23 @@ def fit_ref_voltage(cal_data, nbins=1000):
 	vals,x  = histogram(cal_data, nbins)
 	x = (x[1:]+x[:-1])/2.
 
-	expected = (1., 1., 50., 4., 1., 50.)
+	expected = (2., 1., 50., 6., 1., 50.)
 	params, cov = curve_fit(bimodal, x, vals, expected)
 
 	ref = max(params[0], params[3])
-	return ref
+	cold = min(params[0], params[3])
+
+	#print ref,cold
+	return ref,cold
 
 
-def calc_tsys(ref, sky_data, Tamb=280.):
+def calc_tsys(ref, sky_data, Tamb=280., cal=False):
 
-	ref_data = ref*ones(len(sky_data))
-
+	if cal:
+		ref_data = ref
+	else:
+		ref_data = ref*ones(len(sky_data))
+	
 	Tsys = Tamb*(sky_data/(ref_data-sky_data))
 
 	return Tsys
@@ -166,8 +172,20 @@ if __name__ == "__main__":
 
 		src_obs = form_full_variable(nc_obs, 'Header.Source.SourceName')
  
-		ref_A, ref_B, calnum = find_cal_ref(obsnum, nc_obs)
-	
+		ref_A, cold_A, ref_B, cold_B, calnum = find_cal_ref(obsnum, nc_obs)
+
+                if obsnum==calnum:
+			
+			cal_Tsys_A = calc_tsys(ref_A, cold_A, cal=True)
+			cal_Tsys_B = calc_tsys(ref_B, cold_B, cal=True)
+			
+			if(verbose):
+
+				print 'For Cal scan %i, Tsys_A = %f' %(calnum,cal_Tsys_A)
+				print 'For Cal scan %i, Tsys_B = %f' %(calnum,cal_Tsys_B)
+			continue 
+			
+			
 		sky_A = nc_obs.variables['Data.Vlbi1mmTpm.APower'].data.copy()
 		sky_B = nc_obs.variables['Data.Vlbi1mmTpm.BPower'].data.copy()
 
